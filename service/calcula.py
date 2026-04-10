@@ -6,12 +6,13 @@ from config.config import FLAGS
 
 class Calcula:
     def __init__(self, coeficiente: Coeficiente, leer_data: LeerData, learning_rate: float = 0.0, epochs: int = 1000,
-                 flag: list = FLAGS ):
+                 flag: list = FLAGS, f_lambda: float = 0.0 ):
         self.__coeficiente = coeficiente
         self.__leer_data = leer_data
         self.__learning_rate = learning_rate
         self.__epochs = epochs
         self.__flag = flag
+        self.__f_lambda = f_lambda
 
     @property
     def coeficiente(self):
@@ -51,6 +52,7 @@ class Calcula:
         h.w_real_price = data[ i ]
         return h
 
+
     def get_prediction( self, house: House) -> float:
         return (( house.w_long * self.__coeficiente.w_long )  +
                  ( house.w_lat * self.__coeficiente.w_lat ) +
@@ -62,39 +64,66 @@ class Calcula:
                  ( house.w_income * self.__coeficiente.w_income ) +
                  self.__coeficiente.bias)
 
+
+    def get_w_power_2( self, house: House) -> float:
+        return (( house.w_long ** 2  ) +
+                 ( house.w_lat ** 2  ) +
+                 ( house.w_age ** 2  ) +
+                 ( house.w_rooms ** 2  ) +
+                 ( house.w_bedrooms ** 2  ) +
+                 ( house.w_pop ** 2  ) +
+                 ( house.w_house ** 2  ) +
+                 ( house.w_income ** 2  ) )
+
     def entrena( self ) -> bool:
         co : Coeficiente = self.__coeficiente
         n: int = self.__leer_data.get_train_data_n( )
-        gr: Gradiente = None
-        h: House = None
-        total_error_cuadratico: float = 0.0
         for epoch in range( self.__epochs ):
             gr: Gradiente = Gradiente()
-            total_error_cuadratico = 0.0
+            total_error_cuadratico: float = 0.0
+            total_error_bias: float = 0.0
+            total_w_cuadrado: float = 0.0
             for data in self.__leer_data.train_data:
                 h : House = self.get_House_from_data( data )
-                prediction: float = self.get_prediction( h )
-                error: float = prediction - h.w_real_price
-                total_error_cuadratico += error ** 2
-                if not gr.update( h, n, error ):
+                total_error_cuadratico += self.get_error_cuadratico( h )
+                total_error_bias += self.get_error_perdida_bias( h )
+                total_w_cuadrado += self.get_w_power_2( h )
+                if not gr.update( h, n, self.get_error( h ) ):
                     return False
             if not co.update( self.__learning_rate, gr ):
                 return False
             if epoch % 100 == 0:
-                mse = total_error_cuadratico / n
-                print( f"Época:, {epoch}, | Error Medio Cuadrático:, {mse}, | Raiz Error Medio Cuadrático:,{mse ** (1 / 2)}" )
+                mse: float = total_error_cuadratico / n
+                fpr: float = (total_error_bias / ( 2*n ) ) + ( ( total_w_cuadrado * self.__f_lambda )/ ( 2*n ) )
+                print( f"Época:, {epoch}, Error Medio Cuadrático:, {mse}, Raiz Error Medio Cuadrático:,{mse ** (1 / 2)}"+
+                       f" , Función de pérdida con regularización: {fpr}" )
+        return True
 
     def prueba(self):
         total_error_cuadratico: float = 0.0
+        total_error_bias: float = 0.0
+        total_w_cuadrado: float = 0.0
         n: int = len( self.__leer_data.test_data )
         for data in self.__leer_data.test_data:
             h : House = self.get_House_from_data( data )
-            prediction: float = self.get_prediction( h )
-            error: float = prediction - h.w_real_price
-            total_error_cuadratico += error ** 2
-        mse = total_error_cuadratico / n
+            total_error_cuadratico += self.get_error_cuadratico( h )
+            total_error_bias += self.get_error_perdida_bias( h )
+            total_w_cuadrado += self.get_w_power_2( h )
+
+        mse: float = total_error_cuadratico / n
+        fpr: float = (total_error_bias / (2 * n)) + ((total_w_cuadrado * self.__f_lambda) / (2 * n))
         print("\n--- Resultados en el conjunto de TEST ---")
-        print( f"Error Medio Cuadrático: {mse}, Raiz Error Medio Cuadrático:{mse ** (1 / 2)}" )
+        print( f"Error Medio Cuadrático: {mse}, Raiz Error Medio Cuadrático:{mse ** (1 / 2)}" +
+               f" , Función de pérdida con regularización: {fpr}" )
+
+    def get_error(self, h: House ) -> float:
+        return self.get_prediction( h ) - h.w_real_price
+
+    def get_error_cuadratico(self, h: House ) -> float:
+        return self.get_error( h ) ** 2
+
+    def get_error_perdida_bias(self, h: House ) -> float:
+        return ( self.__coeficiente.bias + self.get_error( h ) ) ** 2
 
     def __str__(self):
         if self.__epochs <= 0:
